@@ -14,11 +14,15 @@ st.markdown("""
 2. Dentro del rostro, busca **OJOS ABIERTOS** (Cuadros Verdes).
 3. Si el cuadro verde **DESAPARECE**, el sistema asume que cerraste los ojos y la **Barra de Peligro** sube.
 """)
+# --- CONTROLES MODIFICADOS ---
+st.sidebar.header("Calibración Fina")
 
-# --- CONTROLES ---
-st.sidebar.header("Ajustes")
-min_neighbors = st.sidebar.slider("Exigencia del Ojo", 2, 10, 5, help="Baja este número si no te detecta los ojos abiertos.")
-umbral_sueno = st.sidebar.slider("Velocidad de Alerta", 10, 60, 20, help="Qué tan rápido salta la alarma.")
+# CAMBIO CLAVE: Aumenté el rango de 10 a 25.
+# Empieza en 8 para ser más estricto desde el inicio.
+min_neighbors = st.sidebar.slider("Exigencia del Ojo (Strictness)", 1, 25, 8, 
+    help="Sube este número para que el modelo deje de ver ojos donde no los hay (ojos cerrados).")
+
+umbral_sueno = st.sidebar.slider("Velocidad de Alerta", 5, 50, 15)
 
 # Cargar modelos
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
@@ -118,4 +122,5 @@ ctx = webrtc_streamer(
 
 if ctx.video_processor:
     ctx.video_processor.update_params(min_neighbors, umbral_sueno)
+
 
