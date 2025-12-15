@@ -5,40 +5,34 @@ import numpy as np
 import av
 
 # --- CONFIGURACIÓN ---
-st.set_page_config(page_title="Detector Fatiga (Ajustable)", page_icon="👁️")
+st.set_page_config(page_title="Detector Fatiga", page_icon="🚫")
 
-st.title("🛡️ Sistema de Detección - Modo Calibración")
-st.info("ℹ️ Instrucciones: Usa los controles de la izquierda hasta que los recuadros verdes SOLO aparezcan en tus ojos abiertos.")
+st.title("🛡️ Demo: Detector de Sueño")
+st.markdown("""
+**Cómo funciona esta Demo:**
+1. El sistema busca tu **ROSTRO** (Cuadro Azul).
+2. Dentro del rostro, busca **OJOS ABIERTOS** (Cuadros Verdes).
+3. Si el cuadro verde **DESAPARECE**, el sistema asume que cerraste los ojos y la **Barra de Peligro** sube.
+""")
 
-# --- CONTROLES DE CALIBRACIÓN (SIDEBAR) ---
-st.sidebar.header("🔧 Calibración del Modelo")
-# Scale Factor: Qué tanto reduce la imagen buscando. 1.1 es estándar.
-scale_factor = st.sidebar.slider("Scale Factor (Precisión)", 1.05, 1.30, 1.20, 0.05)
-# Min Neighbors: Cuántos rectángulos vecinos necesita para confirmar un ojo.
-# MÁS ALTO = Menos falsos positivos (más estricto).
-# MÁS BAJO = Detecta más fácil (pero confunde nariz/cejas).
-min_neighbors = st.sidebar.slider("Min Neighbors (Estrictez)", 3, 10, 5)
+# --- CONTROLES ---
+st.sidebar.header("Ajustes")
+min_neighbors = st.sidebar.slider("Exigencia del Ojo", 2, 10, 5, help="Baja este número si no te detecta los ojos abiertos.")
+umbral_sueno = st.sidebar.slider("Velocidad de Alerta", 10, 60, 20, help="Qué tan rápido salta la alarma.")
 
-# Umbral de Frames para Alerta
-FRAMES_PARA_ALERTA = st.sidebar.slider("Sensibilidad de Sueño (Frames)", 10, 50, 20)
-
-# Cargar clasificadores
-try:
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye_tree_eyeglasses.xml')
-except Exception as e:
-    st.error("Error cargando modelos de OpenCV")
+# Cargar modelos
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_eye_tree_eyeglasses.xml')
 
 class VideoProcessor(VideoProcessorBase):
     def __init__(self):
-        self.closed_eyes_frames = 0
-        # Necesitamos leer los valores globales de los sliders
-        self.scale_factor = 1.2
+        self.drowsy_counter = 0
         self.min_neighbors = 5
+        self.umbral = 20
 
-    def update_params(self, scale, neighbors):
-        self.scale_factor = scale
+    def update_params(self, neighbors, umbral):
         self.min_neighbors = neighbors
+        self.umbral = umbral
 
     def recv(self, frame):
         img = frame.to_ndarray(format="bgr24")
@@ -48,64 +42,80 @@ class VideoProcessor(VideoProcessorBase):
         # 1. Detectar Rostro
         faces = face_cascade.detectMultiScale(gray, 1.3, 5)
         
-        status_text = "Esperando rostro..."
-        color_status = (200, 200, 200)
-        eyes_found = 0
+        # Variables de estado para este frame
+        face_detected = False
+        eyes_detected = 0
+        status_color = (0, 255, 0)
+        status_text = "SISTEMA ACTIVO"
 
-        for (x, y, w, h) in faces:
-            # Dibujar cara (Azul)
-            cv2.rectangle(img, (x, y), (x+w, y+h), (255, 0, 0), 2)
-            
-            # Recortar zona de la cara (ROI)
-            roi_gray = gray[y:y+h, x:x+w]
-            roi_color = img[y:y+h, x:x+w]
-            
-            # 2. Detectar Ojos (Usando parámetros dinámicos)
-            # Nota: Leemos los valores globales definidos por los sliders
-            eyes = eye_cascade.detectMultiScale(
-                roi_gray, 
-                scaleFactor=scale_factor, 
-                minNeighbors=min_neighbors
-            )
-            
-            eyes_found = len(eyes)
+        if len(faces) > 0:
+            face_detected = True
+            for (x, y, w, h) in faces:
+                cv2.rectangle(img, (x, y), (x+w, y+h), (255, 0, 0), 2)
+                
+                roi_gray = gray[y:y+h, x:x+w]
+                roi_color = img[y:y+h, x:x+w]
+                
+                # 2. Detectar Ojos
+                eyes = eye_cascade.detectMultiScale(roi_gray, 1.1, self.min_neighbors)
+                eyes_detected = len(eyes)
+                
+                for (ex, ey, ew, eh) in eyes:
+                    cv2.rectangle(roi_color, (ex, ey), (ex+ew, ey+eh), (0, 255, 0), 2)
 
-            # Dibujar ojos encontrados (Verde)
-            for (ex, ey, ew, eh) in eyes:
-                cv2.rectangle(roi_color, (ex, ey), (ex+ew, ey+eh), (0, 255, 0), 2)
-
-            # Lógica de Sueño:
-            # Si detecta MENOS de 2 ojos, asumimos que están cerrados o parpadeando
-            if eyes_found < 2:
-                self.closed_eyes_frames += 1
+        # --- LÓGICA DE DETECCIÓN POR AUSENCIA ---
+        if face_detected:
+            # Si veo la cara, PERO veo menos de 2 ojos -> Posible sueño
+            if eyes_detected < 2:
+                self.drowsy_counter += 1
+                status_text = f"¡OJOS PERDIDOS! ({self.drowsy_counter}/{self.umbral})"
+                status_color = (0, 165, 255) # Naranja
             else:
-                self.closed_eyes_frames = 0 
+                # Si veo ojos, bajo el contador (recuperación)
+                if self.drowsy_counter > 0:
+                    self.drowsy_counter -= 1
+                status_text = "OJOS VISIBLES"
+                status_color = (0, 255, 0) # Verde
+        else:
+            status_text = "BUSCANDO ROSTRO..."
+            status_color = (200, 200, 200) # Gris
+            # Si no hay cara, mantenemos el contador o lo bajamos lento
+            if self.drowsy_counter > 0:
+                self.drowsy_counter -= 1
 
-            # Alerta
-            if self.closed_eyes_frames > FRAMES_PARA_ALERTA:
-                status_text = "¡DORMIDO!"
-                color_status = (0, 0, 255)
-                cv2.rectangle(img, (0, 0), (img.shape[1], img.shape[0]), (0, 0, 255), 30)
-            else:
-                status_text = "DESPIERTO"
-                color_status = (0, 255, 0)
+        # --- DISPARO DE ALARMA ---
+        # Dibujar barra de progreso del sueño
+        bar_width = int((self.drowsy_counter / self.umbral) * 200)
+        bar_width = min(bar_width, 200) # Tope visual
         
-        # Información en pantalla para depurar
-        cv2.putText(img, f"Estado: {status_text}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_status, 2)
-        cv2.putText(img, f"Ojos detectados: {eyes_found}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+        # Fondo barra
+        cv2.rectangle(img, (20, 100), (220, 130), (50, 50, 50), -1) 
+        # Relleno barra (Cambia de color si es peligroso)
+        bar_color = (0, 255, 0)
+        if self.drowsy_counter > self.umbral / 2: bar_color = (0, 165, 255)
+        if self.drowsy_counter >= self.umbral: bar_color = (0, 0, 255)
+            
+        cv2.rectangle(img, (20, 100), (20 + bar_width, 130), bar_color, -1)
+        cv2.putText(img, "NIVEL DE SUENO", (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+
+        if self.drowsy_counter >= self.umbral:
+            status_text = "!!! ALERTA DE SUEÑO !!!"
+            # Pantalla roja intermitente o borde grueso
+            cv2.rectangle(img, (0, 0), (img.shape[1], img.shape[0]), (0, 0, 255), 40)
+
+        # Textos de debug
+        cv2.putText(img, status_text, (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, status_color, 2)
         
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# Renderizar WebRTC
 ctx = webrtc_streamer(
-    key="universal-detection",
+    key="demo-final",
     mode=WebRtcMode.SENDRECV,
     video_processor_factory=VideoProcessor,
     media_stream_constraints={"video": True, "audio": False},
     async_processing=True,
 )
 
-# Truco para pasar los valores de los sliders al procesador de video en tiempo real
 if ctx.video_processor:
-    ctx.video_processor.update_params(scale_factor, min_neighbors)
+    ctx.video_processor.update_params(min_neighbors, umbral_sueno)
 
