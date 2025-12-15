@@ -5,6 +5,10 @@
 Se trata de un modelo de pipeline de vision computacional que analiza si el conductor de un vehiculo tiene o no los ojos cerrados, y, en caso de que si, por una cantidad de segundos x (Modificable en la interfaz) mande una alerta de sommnolencia.
 
 
+INTERFAZ DIDACTICA:
+
+https://proyecto-fatiga-hfs4vz8wdmpjmgzr6hekql.streamlit.app/
+
 Este proyecto implementa un Pipeline de Visión Computacional de Baja Latencia.
 
 En lugar de usar redes neuronales pesadas que requieren GPU, opté por Clasificadores en Cascada (Haar Cascades) optimizados para CPU. Esto permite que el sistema corra en navegadores web y dispositivos móviles sin lag.
