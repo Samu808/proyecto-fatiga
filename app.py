@@ -125,6 +125,7 @@ class VideoProcessor(VideoProcessorBase):
         
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
+
 # --- COMPONENTE WEBRTC ---
 ctx = webrtc_streamer(
     key="detector-pro-v2",
@@ -132,6 +133,10 @@ ctx = webrtc_streamer(
     video_processor_factory=VideoProcessor,
     media_stream_constraints={"video": True, "audio": False},
     async_processing=True,
+    # AGREGA ESTO: Configuración para evitar errores de red en Python 3.13
+    rtc_configuration={
+        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+    }
 )
 
 # --- ENVIAR PARÁMETROS DE SLIDERS AL PROCESADOR ---
@@ -140,6 +145,7 @@ if ctx.video_processor:
 
 if ctx.video_processor:
     ctx.video_processor.update_params(min_neighbors, umbral_sueno)
+
 
 
 
